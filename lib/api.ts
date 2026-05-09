@@ -1,4 +1,6 @@
-export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+import QRCode from 'qrcode';
+
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
 
 export type SessionPayload = {
@@ -12,7 +14,7 @@ export type SessionPayload = {
 };
 
 export async function fetchCurrentSession() {
-  const response = await fetch(`${BACKEND_URL}/api/sessions/current`, {
+  const response = await fetch(`${API_URL}/api/sessions/current`, {
     cache: 'no-store',
   });
   if (!response.ok) throw new Error('Failed to fetch current session');
@@ -20,7 +22,7 @@ export async function fetchCurrentSession() {
 }
 
 export async function startAttendanceSession(payload: SessionPayload = {}) {
-  const response = await fetch(`${BACKEND_URL}/api/sessions/start`, {
+  const response = await fetch(`${API_URL}/api/sessions/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -30,11 +32,26 @@ export async function startAttendanceSession(payload: SessionPayload = {}) {
 }
 
 export async function endAttendanceSession() {
-  const response = await fetch(`${BACKEND_URL}/api/sessions/end`, {
+  const response = await fetch(`${API_URL}/api/sessions/end`, {
     method: 'POST',
   });
   if (!response.ok) throw new Error('Failed to end session');
   return response.json();
+}
+
+export async function createQrSession() {
+  const response = await fetch(`${API_URL}/api/qr/session`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error('Failed to create QR session');
+  return response.json();
+}
+
+export async function getQrImageDataUrl(verifyUrl: string) {
+  return QRCode.toDataURL(verifyUrl, {
+    width: 220,
+    margin: 1,
+  });
 }
 
 export class WebSocketService {

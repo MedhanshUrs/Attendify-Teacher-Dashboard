@@ -21,6 +21,8 @@ import { mockStudents, mockCameras, type Student } from '@/lib/mock-data'
 import {
   endAttendanceSession,
   fetchCurrentSession,
+  createQrSession,
+  getQrImageDataUrl,
   startAttendanceSession,
   WebSocketService,
 } from '@/lib/api'
@@ -32,6 +34,9 @@ export function LiveSession() {
   const [students, setStudents] = useState<Student[]>(mockStudents)
   const [elapsedTime, setElapsedTime] = useState(0)
   const [detectionProgress, setDetectionProgress] = useState(0)
+  const [qrVerifyUrl, setQrVerifyUrl] = useState<string | null>(null)
+  const [qrExpiresAt, setQrExpiresAt] = useState<string | null>(null)
+  const [qrImageDataUrl, setQrImageDataUrl] = useState<string | null>(null)
 
   // Timer effect
   useEffect(() => {
@@ -126,9 +131,24 @@ export function LiveSession() {
     setSessionStatus('ending')
     try {
       await endAttendanceSession()
+      setQrVerifyUrl(null)
+      setQrExpiresAt(null)
+      setQrImageDataUrl(null)
     } catch (error) {
       console.error('Unable to end session', error)
       setSessionStatus('active')
+    }
+  }
+
+  const generateFallbackQr = async () => {
+    try {
+      const payload = await createQrSession()
+      setQrVerifyUrl(payload.verify_url)
+      setQrExpiresAt(payload.expires_at)
+      const dataUrl = await getQrImageDataUrl(payload.verify_url)
+      setQrImageDataUrl(dataUrl)
+    } catch (error) {
+      console.error('Unable to generate QR session', error)
     }
   }
 
@@ -405,6 +425,41 @@ export function LiveSession() {
               </Button>
               <Button variant="outline">Download Report</Button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {sessionStatus === 'active' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between text-base">
+              <span>QR Fallback Verification</span>
+              <Button variant="outline" onClick={generateFallbackQr}>
+                Generate Dynamic QR
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {qrVerifyUrl ? (
+              <div className="flex items-center gap-6">
+                {qrImageDataUrl && (
+                  <img
+                    src={qrImageDataUrl}
+                    alt="QR verify link"
+                    className="h-44 w-44 rounded-lg border border-border bg-white p-2"
+                  />
+                )}
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <p>Students can scan to open the verify page and submit selfie verification.</p>
+                  <p className="text-foreground break-all">{qrVerifyUrl}</p>
+                  {qrExpiresAt && <p>Expires at: {new Date(qrExpiresAt).toLocaleTimeString()}</p>}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Generate a QR code for browser-based fallback verification.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
