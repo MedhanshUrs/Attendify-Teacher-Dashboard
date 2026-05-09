@@ -38,16 +38,45 @@ export function LiveSession() {
   const [qrExpiresAt, setQrExpiresAt] = useState<string | null>(null)
   const [qrImageDataUrl, setQrImageDataUrl] = useState<string | null>(null)
 
-  // Timer effect
+  // Timer effect with auto-expiry at 2 minutes for demo purposes
   useEffect(() => {
     let interval: NodeJS.Timeout
     if (sessionStatus === 'active') {
       interval = setInterval(() => {
-        setElapsedTime((prev) => prev + 1)
+        setElapsedTime((prev) => {
+          const newTime = prev + 1
+          // Auto-expire session after 2 minutes (120 seconds) for demo
+          if (newTime >= 120) {
+            const sessionData = {
+              active: false,
+              timestamp: Date.now(),
+              message: 'Attendance Session Expired',
+            }
+            localStorage.setItem('attendify_session', JSON.stringify(sessionData))
+            window.dispatchEvent(new StorageEvent('storage', {
+              key: 'attendify_session',
+              newValue: JSON.stringify(sessionData),
+            }))
+          }
+          return newTime
+        })
       }, 1000)
     }
     return () => clearInterval(interval)
   }, [sessionStatus])
+
+  // Handle session expiry
+  useEffect(() => {
+    if (sessionStatus === 'active' && elapsedTime >= 120) {
+      setStudents((prev) =>
+        prev.map((s) => (s.status === 'pending' ? { ...s, status: 'absent' } : s))
+      )
+      setQrVerifyUrl(null)
+      setQrExpiresAt(null)
+      setQrImageDataUrl(null)
+      setSessionStatus('completed')
+    }
+  }, [elapsedTime, sessionStatus])
 
   // Simulated student detection effect (demo mode)
   useEffect(() => {
@@ -130,6 +159,23 @@ export function LiveSession() {
       }
     }
     loadSession()
+    
+    // Check for existing localStorage session and restore if active
+    const existingSession = localStorage.getItem('attendify_session')
+    if (existingSession) {
+      try {
+        const parsed = JSON.parse(existingSession)
+        // If session is still active and not expired (2 min = 120000 ms)
+        if (parsed.active && Date.now() - parsed.timestamp < 120000) {
+          setSessionStatus('active')
+        } else if (!parsed.active || Date.now() - parsed.timestamp >= 120000) {
+          // Clear expired session
+          localStorage.removeItem('attendify_session')
+        }
+      } catch {
+        localStorage.removeItem('attendify_session')
+      }
+    }
   }, [])
 
   // Update progress
@@ -165,6 +211,24 @@ export function LiveSession() {
     // Immediately transition to active state after brief loading
     setTimeout(() => {
       setSessionStatus('active')
+      
+      // Sync session state to localStorage for cross-app communication
+      const sessionData = {
+        active: true,
+        timestamp: Date.now(),
+        message: 'Attendance Session Started',
+        subject: 'Artificial Intelligence',
+        code: 'CS403',
+        room: 'Lab 102',
+        professor: 'Dr. Rajesh Kumar',
+      }
+      localStorage.setItem('attendify_session', JSON.stringify(sessionData))
+      
+      // Dispatch storage event manually for same-tab listeners
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'attendify_session',
+        newValue: JSON.stringify(sessionData),
+      }))
     }, 800)
   }
 
@@ -185,6 +249,20 @@ export function LiveSession() {
       setQrExpiresAt(null)
       setQrImageDataUrl(null)
       setSessionStatus('completed')
+      
+      // Clear session from localStorage for cross-app communication
+      const sessionData = {
+        active: false,
+        timestamp: Date.now(),
+        message: 'Attendance Session Ended',
+      }
+      localStorage.setItem('attendify_session', JSON.stringify(sessionData))
+      
+      // Dispatch storage event manually for same-tab listeners
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'attendify_session',
+        newValue: JSON.stringify(sessionData),
+      }))
     }, 600)
   }
 
@@ -205,6 +283,9 @@ export function LiveSession() {
     setElapsedTime(0)
     setStudents(mockStudents)
     setDetectionProgress(0)
+    
+    // Clear localStorage on session reset
+    localStorage.removeItem('attendify_session')
   }
 
   const presentCount = students.filter((s) => s.status === 'present').length
