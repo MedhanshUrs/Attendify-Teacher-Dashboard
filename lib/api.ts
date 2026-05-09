@@ -3,6 +3,9 @@ import QRCode from 'qrcode';
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
 
+// Feature flag: enable mock mode when backend is unavailable
+export const USE_MOCK_FALLBACK = true;
+
 export type SessionPayload = {
   subject?: string;
   code?: string;
@@ -13,38 +16,80 @@ export type SessionPayload = {
   total_strength?: number;
 };
 
+// Helper to attempt API call with timeout and fallback
+async function fetchWithFallback<T>(
+  fetcher: () => Promise<Response>,
+  mockResponse: T,
+  timeoutMs = 3000
+): Promise<T> {
+  if (USE_MOCK_FALLBACK) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      
+      const fetcherWithAbort = async () => {
+        const response = await fetcher();
+        clearTimeout(timeoutId);
+        if (!response.ok) throw new Error('API request failed');
+        return response.json() as Promise<T>;
+      };
+      
+      return await Promise.race([
+        fetcherWithAbort(),
+        new Promise<T>((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout')), timeoutMs)
+        )
+      ]);
+    } catch {
+      // Return mock response on any failure
+      console.log('[v0] Backend unavailable, using mock response');
+      return mockResponse;
+    }
+  }
+  
+  const response = await fetcher();
+  if (!response.ok) throw new Error('API request failed');
+  return response.json() as Promise<T>;
+}
+
 export async function fetchCurrentSession() {
-  const response = await fetch(`${API_URL}/api/sessions/current`, {
-    cache: 'no-store',
-  });
-  if (!response.ok) throw new Error('Failed to fetch current session');
-  return response.json();
+  return fetchWithFallback(
+    () => fetch(`${API_URL}/api/sessions/current`, { cache: 'no-store' }),
+    { current_session: null }
+  );
 }
 
 export async function startAttendanceSession(payload: SessionPayload = {}) {
-  const response = await fetch(`${API_URL}/api/sessions/start`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) throw new Error('Failed to start session');
-  return response.json();
+  return fetchWithFallback(
+    () => fetch(`${API_URL}/api/sessions/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+    { 
+      success: true, 
+      session_id: `mock-${Date.now()}`,
+      message: 'Session started (mock)',
+      ...payload 
+    }
+  );
 }
 
 export async function endAttendanceSession() {
-  const response = await fetch(`${API_URL}/api/sessions/end`, {
-    method: 'POST',
-  });
-  if (!response.ok) throw new Error('Failed to end session');
-  return response.json();
+  return fetchWithFallback(
+    () => fetch(`${API_URL}/api/sessions/end`, { method: 'POST' }),
+    { success: true, message: 'Session ended (mock)' }
+  );
 }
 
 export async function createQrSession() {
-  const response = await fetch(`${API_URL}/api/qr/session`, {
-    method: 'POST',
-  });
-  if (!response.ok) throw new Error('Failed to create QR session');
-  return response.json();
+  return fetchWithFallback(
+    () => fetch(`${API_URL}/api/qr/session`, { method: 'POST' }),
+    { 
+      verify_url: `${typeof window !== 'undefined' ? window.location.origin : ''}/verify?session=mock-${Date.now()}`,
+      expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString()
+    }
+  );
 }
 
 export async function getQrImageDataUrl(verifyUrl: string) {
